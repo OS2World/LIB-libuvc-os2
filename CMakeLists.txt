@@ -77,6 +77,12 @@ if(BUILD_UVC_SHARED)
   # Aliases defined here available only if project included 
   # via addsubdirectory
   add_library(LibUVC::UVCShared ALIAS uvc)
+  if(OS2)
+    set_target_properties(uvc PROPERTIES
+      OS2_DEF_VENDOR "$ENV{VENDOR}"
+      OS2_DEF_PATCH "${libuvc_VERSION_PATCH}"
+      OS2_DEF_VERSION "${libuvc_VERSION}")
+  endif()
 endif()
 
 if(BUILD_UVC_STATIC)
