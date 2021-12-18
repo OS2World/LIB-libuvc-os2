@@ -194,8 +194,8 @@ uvc_error_t uvc_yuyv2rgb(uvc_frame_t *in, uvc_frame_t *out) {
   while (prgb < prgb_end) {
     IYUYV2RGB_8(pyuv, prgb);
 
-    prgb += 3 * 8;
-    pyuv += 2 * 8;
+    prgb += 6 * 4; /* 6 output bytes, 4 sets */
+    pyuv += 4 * 4; /* 4 input bytes, 4 sets */
   }
 
   return UVC_SUCCESS;
