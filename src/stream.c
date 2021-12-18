@@ -1074,6 +1074,7 @@ uvc_error_t uvc_stream_start(
   size_t total_transfer_size = 0;
   struct libusb_transfer *transfer;
   int transfer_id;
+  int clipped_transfers;
 
   ctrl = &strmh->cur_ctrl;
 
@@ -1195,6 +1196,12 @@ uvc_error_t uvc_stream_start(
       strmh->transfers[transfer_id] = transfer;
       strmh->transfer_bufs[transfer_id] = malloc(total_transfer_size);
 
+      if (!strmh->transfer_bufs[transfer_id])
+      {
+          UVC_DEBUG("failed allocating data buffer for transfer nr: %u", transfer_id);
+          break;
+      }
+
       libusb_fill_iso_transfer(
         transfer, strmh->devh->usb_devh, format_desc->parent->bEndpointAddress,
         strmh->transfer_bufs[transfer_id],
@@ -1209,6 +1216,13 @@ uvc_error_t uvc_stream_start(
       strmh->transfers[transfer_id] = transfer;
       strmh->transfer_bufs[transfer_id] = malloc (
           strmh->cur_ctrl.dwMaxPayloadTransferSize );
+
+      if (!strmh->transfer_bufs[transfer_id])
+      {
+          UVC_DEBUG("failed allocating data buffer for transfer nr: %u", transfer_id);
+          break;
+      }
+
       libusb_fill_bulk_transfer ( transfer, strmh->devh->usb_devh,
           format_desc->parent->bEndpointAddress,
           strmh->transfer_bufs[transfer_id],
@@ -1217,17 +1231,12 @@ uvc_error_t uvc_stream_start(
     }
   }
 
+  clipped_transfers = transfer_id < LIBUVC_NUM_TRANSFER_BUFS ? transfer_id : LIBUVC_NUM_TRANSFER_BUFS;
+
   strmh->user_cb = cb;
   strmh->user_ptr = user_ptr;
 
-  /* If the user wants it, set up a thread that calls the user's function
-   * with the contents of each frame.
-   */
-  if (cb) {
-    pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void*) strmh);
-  }
-
-  for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS;
+  for (transfer_id = 0; transfer_id < clipped_transfers;
       transfer_id++) {
     ret = libusb_submit_transfer(strmh->transfers[transfer_id]);
     if (ret != UVC_SUCCESS) {
@@ -1237,12 +1246,20 @@ uvc_error_t uvc_stream_start(
   }
 
   if ( ret != UVC_SUCCESS && transfer_id > 0 ) {
-    for ( ; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; transfer_id++) {
-      free ( strmh->transfers[transfer_id]->buffer );
+    for ( ; transfer_id < clipped_transfers; transfer_id++) {
+      free ( strmh->transfer_bufs[transfer_id] );
+      strmh->transfer_bufs[transfer_id] = 0;
       libusb_free_transfer ( strmh->transfers[transfer_id]);
       strmh->transfers[transfer_id] = 0;
     }
     ret = UVC_SUCCESS;
+  }
+
+  /* If the user wants it, set up a thread that calls the user's function
+   * with the contents of each frame.
+   */
+  if (cb) {
+    pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void*) strmh);
   }
 
   UVC_EXIT(ret);
