@@ -245,8 +245,8 @@ uvc_error_t uvc_yuyv2bgr(uvc_frame_t *in, uvc_frame_t *out) {
   while (pbgr < pbgr_end) {
     IYUYV2BGR_8(pyuv, pbgr);
 
-    pbgr += 6 * 4; /* 6 input bytes, 4 sets */
-    pyuv += 4 * 4; /* 4 output bytes, 4 sets */
+    pbgr += 3 * 8;
+    pyuv += 2 * 8;
   }
 
   return UVC_SUCCESS;
