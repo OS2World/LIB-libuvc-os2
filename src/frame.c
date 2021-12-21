@@ -245,8 +245,8 @@ uvc_error_t uvc_yuyv2bgr(uvc_frame_t *in, uvc_frame_t *out) {
   while (pbgr < pbgr_end) {
     IYUYV2BGR_8(pyuv, pbgr);
 
-    pbgr += 3 * 8;
-    pyuv += 2 * 8;
+    pbgr += 6 * 4;
+    pyuv += 4 * 4;
   }
 
   return UVC_SUCCESS;
@@ -375,8 +375,8 @@ uvc_error_t uvc_uyvy2rgb(uvc_frame_t *in, uvc_frame_t *out) {
   while (prgb < prgb_end) {
     IUYVY2RGB_8(pyuv, prgb);
 
-    prgb += 3 * 8;
-    pyuv += 2 * 8;
+    prgb += 6 * 4;
+    pyuv += 4 * 4;
   }
 
   return UVC_SUCCESS;
@@ -425,8 +425,8 @@ uvc_error_t uvc_uyvy2bgr(uvc_frame_t *in, uvc_frame_t *out) {
   while (pbgr < pbgr_end) {
     IUYVY2BGR_8(pyuv, pbgr);
 
-    pbgr += 3 * 8;
-    pyuv += 2 * 8;
+    pbgr += 6 * 4;
+    pyuv += 4 * 4;
   }
 
   return UVC_SUCCESS;
