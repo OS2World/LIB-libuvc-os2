@@ -831,10 +831,6 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         UVC_DEBUG("Freeing transfer %d (%p)", i, transfer);
         libusb_free_transfer(strmh->transfers[i]);
         strmh->transfers[i] = NULL;
-        if (strmh->frame.data == strmh->transfer_bufs[i])
-        {
-            strmh->frame.data = NULL;
-        }
         free(strmh->transfer_bufs[i]);
         strmh->transfer_bufs[i] = NULL;
         break;
@@ -872,10 +868,6 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
             UVC_DEBUG("Freeing failed transfer %d (%p)", i, transfer);
             libusb_free_transfer(strmh->transfers[i]);
             strmh->transfers[i] = NULL;
-            if (strmh->frame.data == strmh->transfer_bufs[i])
-            {
-                strmh->frame.data = NULL;
-            }
             free(strmh->transfer_bufs[i]);
             strmh->transfer_bufs[i] = NULL;
             break;
@@ -898,10 +890,6 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
           UVC_DEBUG("Freeing orphan transfer %d (%p)", i, transfer);
           libusb_free_transfer(strmh->transfers[i]);
           strmh->transfers[i] = NULL;
-          if (strmh->frame.data == strmh->transfer_bufs[i])
-          {
-              strmh->frame.data = NULL;
-          }
           free(strmh->transfer_bufs[i]);
           strmh->transfer_bufs[i] = NULL;
           break;
@@ -1009,6 +997,8 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
 
   UVC_ENTER();
 
+  *strmhp = NULL;
+
   if (_uvc_get_stream_by_interface(devh, ctrl->bInterfaceNumber) != NULL) {
     ret = UVC_ERROR_BUSY; /* Stream is already opened */
     goto fail;
@@ -1045,6 +1035,16 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
 
   strmh->meta_outbuf = malloc( LIBUVC_XFER_META_BUF_SIZE );
   strmh->meta_holdbuf = malloc( LIBUVC_XFER_META_BUF_SIZE );
+
+  if (!strmh->outbuf || !strmh->holdbuf || !strmh->meta_outbuf || !strmh->meta_holdbuf)
+  {
+      free(strmh->outbuf);
+      free(strmh->holdbuf);
+      free(strmh->meta_outbuf);
+      free(strmh->meta_holdbuf);
+      ret = UVC_ERROR_NO_MEM;
+      goto fail;
+  }
 
   pthread_mutex_init(&strmh->cb_mutex, NULL);
   pthread_cond_init(&strmh->cb_cond, NULL);
@@ -1087,9 +1087,11 @@ uvc_error_t uvc_stream_start(
   uvc_error_t ret;
   /* Total amount of data per transfer */
   size_t total_transfer_size = 0;
+  size_t total_transfer_size2 = 0;
   struct libusb_transfer *transfer;
   int transfer_id;
   int clipped_transfers;
+  unsigned int division;
 
   ctrl = &strmh->cur_ctrl;
 
@@ -1186,6 +1188,14 @@ uvc_error_t uvc_stream_start(
           packets_per_transfer = 16;
 
         total_transfer_size = packets_per_transfer * endpoint_bytes_per_packet;
+
+        /*
+         * for OS/2, ensure that buffers are spaced apart by at least a memory page
+         * so that no page overlap will occur as OS/2 cannot properly lock in memory
+         * overlapping memory regions
+         */
+        division  = total_transfer_size / PAGE_SIZE;
+        total_transfer_size2 = (division+2) * PAGE_SIZE;
         break;
       }
     }
@@ -1209,7 +1219,7 @@ uvc_error_t uvc_stream_start(
     for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; ++transfer_id) {
       transfer = libusb_alloc_transfer(packets_per_transfer);
       strmh->transfers[transfer_id] = transfer;
-      strmh->transfer_bufs[transfer_id] = malloc(total_transfer_size);
+      strmh->transfer_bufs[transfer_id] = malloc(total_transfer_size2);
 
       if (!strmh->transfer_bufs[transfer_id])
       {
@@ -1246,6 +1256,16 @@ uvc_error_t uvc_stream_start(
     }
   }
 
+  /* If the user wants it, set up a thread that calls the user's function
+   * with the contents of each frame.
+   */
+  strmh->user_cb = cb;
+  strmh->user_ptr = user_ptr;
+
+  if (cb) {
+    pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void*) strmh);
+  }
+
   clipped_transfers = transfer_id < LIBUVC_NUM_TRANSFER_BUFS ? transfer_id : LIBUVC_NUM_TRANSFER_BUFS;
 
   for (transfer_id = 0; transfer_id < clipped_transfers;
@@ -1265,16 +1285,6 @@ uvc_error_t uvc_stream_start(
       strmh->transfers[transfer_id] = 0;
     }
     ret = UVC_SUCCESS;
-  }
-
-  /* If the user wants it, set up a thread that calls the user's function
-   * with the contents of each frame.
-   */
-  strmh->user_cb = cb;
-  strmh->user_ptr = user_ptr;
-
-  if (cb) {
-    pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void*) strmh);
   }
 
   UVC_EXIT(ret);
@@ -1313,6 +1323,7 @@ void *_uvc_user_caller(void *arg) {
   uvc_stream_handle_t *strmh = (uvc_stream_handle_t *) arg;
 
   uint32_t last_seq = 0;
+  unsigned int hasValidMetadata;
 
   do {
     pthread_mutex_lock(&strmh->cb_mutex);
@@ -1331,7 +1342,11 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_unlock(&strmh->cb_mutex);
 
-    strmh->user_cb(&strmh->frame, strmh->user_ptr);
+    hasValidMetadata = (!strmh->frame.metadata && !strmh->meta_hold_bytes) || (strmh->frame.metadata && strmh->meta_hold_bytes);
+    if (strmh->frame.data && hasValidMetadata)
+    {
+      strmh->user_cb(&strmh->frame, strmh->user_ptr);
+    }
   } while(1);
 
   return NULL; // return value ignored
@@ -1386,8 +1401,15 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   if (frame->data_bytes < strmh->hold_bytes) {
     frame->data = realloc(frame->data, strmh->hold_bytes);
   }
-  frame->data_bytes = strmh->hold_bytes;
-  memcpy(frame->data, strmh->holdbuf, frame->data_bytes);
+  if (frame->data)
+  {
+    frame->data_bytes = strmh->hold_bytes;
+    memcpy(frame->data, strmh->holdbuf, frame->data_bytes);
+  }
+  else
+  {
+      frame->data = NULL;
+  }
 
   if (strmh->meta_hold_bytes > 0)
   {
@@ -1395,8 +1417,15 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
       {
           frame->metadata = realloc(frame->metadata, strmh->meta_hold_bytes);
       }
-      frame->metadata_bytes = strmh->meta_hold_bytes;
-      memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
+      if (frame->metadata)
+      {
+          frame->metadata_bytes = strmh->meta_hold_bytes;
+          memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
+      }
+      else
+      {
+          frame->metadata = NULL;
+      }
   }
 }
 
@@ -1518,10 +1547,6 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
       if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND ) {
         libusb_free_transfer(strmh->transfers[i]);
         strmh->transfers[i] = NULL;
-        if (strmh->frame.data == strmh->transfer_bufs[i])
-        {
-            strmh->frame.data = NULL;
-        }
         free(strmh->transfer_bufs[i]);
         strmh->transfer_bufs[i] = NULL;
       }
@@ -1566,8 +1591,9 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
 
   uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
 
-  if (strmh->frame.data)
-    free(strmh->frame.data);
+  free(strmh->frame.data);
+
+  free(strmh->frame.metadata);
 
   free(strmh->outbuf);
   free(strmh->holdbuf);
