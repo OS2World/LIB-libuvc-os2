@@ -1043,6 +1043,7 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
       free(strmh->meta_outbuf);
       free(strmh->meta_holdbuf);
       ret = UVC_ERROR_NO_MEM;
+      uvc_perror(ret,"uvc_stream_open_ctrl, allocating outbuf,holdbuf,meta_outbuf,meta_holdbuf");
       goto fail;
   }
 
@@ -1223,7 +1224,7 @@ uvc_error_t uvc_stream_start(
 
       if (!strmh->transfer_bufs[transfer_id])
       {
-          UVC_DEBUG("failed allocating data buffer for transfer nr: %u", transfer_id);
+          uvc_perror(UVC_ERROR_NO_MEM,"uvc_stream_start, allocating transfer buffers for iso transfers");
           break;
       }
 
@@ -1244,7 +1245,7 @@ uvc_error_t uvc_stream_start(
 
       if (!strmh->transfer_bufs[transfer_id])
       {
-          UVC_DEBUG("failed allocating data buffer for transfer nr: %u", transfer_id);
+          uvc_perror(UVC_ERROR_NO_MEM,"uvc_stream_start, allocating transfer buffers for bulk transfers");
           break;
       }
 
@@ -1342,7 +1343,7 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_unlock(&strmh->cb_mutex);
 
-    hasValidMetadata = (!strmh->frame.metadata && !strmh->meta_hold_bytes) || (strmh->frame.metadata && strmh->meta_hold_bytes);
+    hasValidMetadata = (!strmh->frame.metadata && !strmh->frame.metadata_bytes) || (strmh->frame.metadata && strmh->frame.metadata_bytes);
     if (strmh->frame.data && hasValidMetadata)
     {
       strmh->user_cb(&strmh->frame, strmh->user_ptr);
@@ -1398,9 +1399,9 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   frame->capture_time_finished = strmh->capture_time_finished;
 
   /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
-  if (frame->data_bytes < strmh->hold_bytes) {
-    frame->data = realloc(frame->data, strmh->hold_bytes);
-  }
+  free(frame->data);
+  frame->data_bytes = 0;
+  frame->data = malloc(strmh->hold_bytes);
   if (frame->data)
   {
     frame->data_bytes = strmh->hold_bytes;
@@ -1408,24 +1409,20 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   }
   else
   {
-      frame->data = NULL;
+    uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating frame data buffer");
   }
 
-  if (strmh->meta_hold_bytes > 0)
+  free(frame->metadata);
+  frame->metadata_bytes = 0;
+  frame->metadata = malloc(strmh->meta_hold_bytes);
+  if (frame->metadata)
   {
-      if (frame->metadata_bytes < strmh->meta_hold_bytes)
-      {
-          frame->metadata = realloc(frame->metadata, strmh->meta_hold_bytes);
-      }
-      if (frame->metadata)
-      {
-          frame->metadata_bytes = strmh->meta_hold_bytes;
-          memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
-      }
-      else
-      {
-          frame->metadata = NULL;
-      }
+      frame->metadata_bytes = strmh->meta_hold_bytes;
+      memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
+  }
+  else if (strmh->meta_hold_bytes)
+  {
+      uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating metadata buffer");
   }
 }
 
@@ -1592,7 +1589,6 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
   uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
 
   free(strmh->frame.data);
-
   free(strmh->frame.metadata);
 
   free(strmh->outbuf);

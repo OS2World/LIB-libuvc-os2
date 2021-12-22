@@ -126,14 +126,20 @@ uvc_error_t uvc_duplicate_frame(uvc_frame_t *in, uvc_frame_t *out) {
 
   memcpy(out->data, in->data, in->data_bytes);
 
-  if (in->metadata && in->metadata_bytes > 0)
+  if (in->metadata && (in->metadata_bytes > 0))
   {
-      if (out->metadata_bytes < in->metadata_bytes)
+      free(out->metadata);
+      out->metadata_bytes = 0;
+      out->metadata = malloc(in->metadata_bytes);
+      if (out->metadata)
       {
-          out->metadata = realloc(out->metadata, in->metadata_bytes);
+        out->metadata_bytes = in->metadata_bytes;
+        memcpy(out->metadata, in->metadata, in->metadata_bytes);
       }
-      out->metadata_bytes = in->metadata_bytes;
-      memcpy(out->metadata, in->metadata, in->metadata_bytes);
+      else
+      {
+        uvc_perror(UVC_ERROR_NO_MEM,"uvc_duplicate_frame, allocating metadata buffer");
+      }
   }
 
   return UVC_SUCCESS;
