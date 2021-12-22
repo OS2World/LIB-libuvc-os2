@@ -663,14 +663,14 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
   strmh->meta_outbuf = tmp_buf;
   strmh->meta_hold_bytes = strmh->meta_got_bytes;
 
-  pthread_cond_broadcast(&strmh->cb_cond);
-  pthread_mutex_unlock(&strmh->cb_mutex);
-
   strmh->seq++;
   strmh->got_bytes = 0;
   strmh->meta_got_bytes = 0;
   strmh->last_scr = 0;
   strmh->pts = 0;
+
+  pthread_cond_broadcast(&strmh->cb_cond);
+  pthread_mutex_unlock(&strmh->cb_mutex);
 }
 
 /** @internal
