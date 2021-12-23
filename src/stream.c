@@ -687,6 +687,8 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
   size_t header_len;
   uint8_t header_info;
   size_t data_len;
+  unsigned int frameid_flipped = 0;
+  unsigned int eof_signalled   = 0;
 
   /* magic numbers for identifying header packets from some iSight cameras */
   static uint8_t isight_tag[] = {
@@ -728,6 +730,8 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
   if (header_len < 2) {
     header_info = 0;
+    frameid_flipped = 0;
+    eof_signalled   = 0;
   } else {
     /** @todo we should be checking the end-of-header bit */
     size_t variable_offset = 2;
@@ -739,7 +743,10 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
       return;
     }
 
-    if (strmh->fid != (header_info & 1) && strmh->got_bytes != 0) {
+    frameid_flipped = (strmh->fid != (header_info & 1));
+    eof_signalled   = (header_info & 2);
+
+    if (frameid_flipped && !eof_signalled && (strmh->got_bytes != 0)) {
       /* The frame ID bit was flipped, but we have image data sitting
          around from prior transfers. This means the camera didn't send
          an EOF for the last transfer of the previous frame. */
@@ -771,7 +778,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     memcpy(strmh->outbuf + strmh->got_bytes, payload + header_len, data_len);
     strmh->got_bytes += data_len;
 
-    if (header_info & (1 << 1)) {
+    if (eof_signalled) {
       /* The EOF bit is set, so publish the complete frame */
       _uvc_swap_buffers(strmh);
     }
@@ -790,6 +797,7 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   uvc_stream_handle_t *strmh = transfer->user_data;
 
   int resubmit = 1;
+  int i = 0;
 
   switch (transfer->status) {
   case LIBUSB_TRANSFER_COMPLETED:
@@ -821,7 +829,6 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_ERROR:
   case LIBUSB_TRANSFER_NO_DEVICE: {
-    int i;
     UVC_DEBUG("not retrying transfer, status = %d", transfer->status);
     pthread_mutex_lock(&strmh->cb_mutex);
 
@@ -829,10 +836,10 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
     for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
       if(strmh->transfers[i] == transfer) {
         UVC_DEBUG("Freeing transfer %d (%p)", i, transfer);
-        libusb_free_transfer(strmh->transfers[i]);
+        transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
+        libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
         strmh->transfers[i] = NULL;
-        free(strmh->transfer_bufs[i]);
-        strmh->transfer_bufs[i] = NULL;
+        strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
         break;
       }
     }
@@ -854,22 +861,25 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
     break;
   }
 
-  if ( resubmit ) {
-    if ( strmh->running ) {
-      int libusbRet = libusb_submit_transfer(transfer);
+  if ( resubmit )
+  {
+    int libusbRet=-1;
+
+    if ( strmh->running )
+    {
+      libusbRet = libusb_submit_transfer(transfer);
       if (libusbRet < 0)
       {
-        int i;
         pthread_mutex_lock(&strmh->cb_mutex);
 
         /* Mark transfer as deleted. */
-        for (i = 0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
-          if (strmh->transfers[i] == transfer) {
+        for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
+          if(strmh->transfers[i] == transfer) {
             UVC_DEBUG("Freeing failed transfer %d (%p)", i, transfer);
-            libusb_free_transfer(strmh->transfers[i]);
+            transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
+            libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
             strmh->transfers[i] = NULL;
-            free(strmh->transfer_bufs[i]);
-            strmh->transfer_bufs[i] = NULL;
+            strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
             break;
           }
         }
@@ -881,23 +891,23 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         pthread_mutex_unlock(&strmh->cb_mutex);
       }
     } else {
-      int i;
       pthread_mutex_lock(&strmh->cb_mutex);
 
       /* Mark transfer as deleted. */
       for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
         if(strmh->transfers[i] == transfer) {
           UVC_DEBUG("Freeing orphan transfer %d (%p)", i, transfer);
-          libusb_free_transfer(strmh->transfers[i]);
+          transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
+          libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
           strmh->transfers[i] = NULL;
-          free(strmh->transfer_bufs[i]);
-          strmh->transfer_bufs[i] = NULL;
+          strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
           break;
         }
       }
       if(i == LIBUVC_NUM_TRANSFER_BUFS ) {
         UVC_DEBUG("orphan transfer %p not found; not freeing!", transfer);
       }
+
 
       pthread_cond_broadcast(&strmh->cb_cond);
       pthread_mutex_unlock(&strmh->cb_mutex);
@@ -1092,7 +1102,6 @@ uvc_error_t uvc_stream_start(
   struct libusb_transfer *transfer;
   int transfer_id;
   int clipped_transfers;
-  unsigned int division;
 
   ctrl = &strmh->cur_ctrl;
 
@@ -1195,8 +1204,7 @@ uvc_error_t uvc_stream_start(
          * so that no page overlap will occur as OS/2 cannot properly lock in memory
          * overlapping memory regions
          */
-        division  = total_transfer_size / PAGE_SIZE;
-        total_transfer_size2 = (division+2) * PAGE_SIZE;
+        total_transfer_size2 = (total_transfer_size / PAGE_SIZE + 1) * PAGE_SIZE;
         break;
       }
     }
@@ -1279,11 +1287,12 @@ uvc_error_t uvc_stream_start(
   }
 
   if ( ret != UVC_SUCCESS && transfer_id > 0 ) {
-    for ( ; transfer_id < clipped_transfers; transfer_id++) {
-      free ( strmh->transfer_bufs[transfer_id] );
-      strmh->transfer_bufs[transfer_id] = 0;
+    for ( ; transfer_id < clipped_transfers; transfer_id++)
+    {
+      strmh->transfers[transfer_id]->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
       libusb_free_transfer ( strmh->transfers[transfer_id]);
       strmh->transfers[transfer_id] = 0;
+      strmh->transfer_bufs[transfer_id] = 0;
     }
     ret = UVC_SUCCESS;
   }
@@ -1343,7 +1352,7 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_unlock(&strmh->cb_mutex);
 
-    hasValidMetadata = (!strmh->frame.metadata && !strmh->frame.metadata_bytes) || (strmh->frame.metadata && strmh->frame.metadata_bytes);
+    hasValidMetadata = ((!strmh->frame.metadata && !strmh->frame.metadata_bytes) || (strmh->frame.metadata && strmh->frame.metadata_bytes));
     if (strmh->frame.data && hasValidMetadata)
     {
       strmh->user_cb(&strmh->frame, strmh->user_ptr);
@@ -1360,6 +1369,7 @@ void *_uvc_user_caller(void *arg) {
 void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   uvc_frame_t *frame = &strmh->frame;
   uvc_frame_desc_t *frame_desc;
+  char *tmp;
 
   /** @todo this stuff that hits the main config cache should really happen
    * in start() so that only one thread hits these data. all of this stuff
@@ -1399,30 +1409,46 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   frame->capture_time_finished = strmh->capture_time_finished;
 
   /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
-  free(frame->data);
-  frame->data_bytes = 0;
-  frame->data = malloc(strmh->hold_bytes);
-  if (frame->data)
+  if (strmh->hold_bytes > frame->data_bytes)
   {
-    frame->data_bytes = strmh->hold_bytes;
-    memcpy(frame->data, strmh->holdbuf, frame->data_bytes);
+      tmp = realloc(frame->data,strmh->hold_bytes);
+      if (tmp)
+      {
+          frame->data = tmp;
+      }
+      else
+      {
+          uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating frame data buffer");
+          free(frame->data);
+          frame->data = NULL;
+      }
   }
-  else
+  frame->data_bytes = 0;
+  if (frame->data && (strmh->hold_bytes > 0))
   {
-    uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating frame data buffer");
+      memcpy(frame->data, strmh->holdbuf, strmh->hold_bytes);
+      frame->data_bytes = strmh->hold_bytes;
   }
 
-  free(frame->metadata);
-  frame->metadata_bytes = 0;
-  frame->metadata = malloc(strmh->meta_hold_bytes);
-  if (frame->metadata)
+  if (strmh->meta_hold_bytes > frame->metadata_bytes)
   {
-      frame->metadata_bytes = strmh->meta_hold_bytes;
-      memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
+      tmp = realloc(frame->metadata,strmh->meta_hold_bytes);
+      if (tmp)
+      {
+          frame->metadata = tmp;
+      }
+      else
+      {
+          uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating metadata buffer");
+          free(frame->metadata);
+          frame->metadata = NULL;
+      }
   }
-  else if (strmh->meta_hold_bytes)
+  frame->metadata_bytes = 0;
+  if (frame->metadata && (strmh->meta_hold_bytes > 0))
   {
-      uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating metadata buffer");
+      memcpy(frame->metadata, strmh->meta_holdbuf, strmh->meta_hold_bytes);
+      frame->metadata_bytes = strmh->meta_hold_bytes;
   }
 }
 
@@ -1541,10 +1567,11 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
     if(strmh->transfers[i] != NULL) {
       int res = libusb_cancel_transfer(strmh->transfers[i]);
-      if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND ) {
+      if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND )
+      {
+        strmh->transfers[i]->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
         libusb_free_transfer(strmh->transfers[i]);
         strmh->transfers[i] = NULL;
-        free(strmh->transfer_bufs[i]);
         strmh->transfer_bufs[i] = NULL;
       }
     }
