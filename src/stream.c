@@ -1334,7 +1334,7 @@ void *_uvc_user_caller(void *arg) {
   uvc_stream_handle_t *strmh = (uvc_stream_handle_t *) arg;
 
   uint32_t last_seq = 0;
-  unsigned int hasValidMetadata;
+  uint32_t hasValidData,hasValidMetadata;
 
   do {
     pthread_mutex_lock(&strmh->cb_mutex);
@@ -1353,8 +1353,9 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_unlock(&strmh->cb_mutex);
 
+    hasValidData     = (strmh->frame.data && strmh->frame.data_bytes);
     hasValidMetadata = ((!strmh->frame.metadata && !strmh->frame.metadata_bytes) || (strmh->frame.metadata && strmh->frame.metadata_bytes));
-    if (strmh->frame.data && hasValidMetadata)
+    if (hasValidData && hasValidMetadata)
     {
       strmh->user_cb(&strmh->frame, strmh->user_ptr);
     }
