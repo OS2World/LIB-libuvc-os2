@@ -1202,9 +1202,10 @@ uvc_error_t uvc_stream_start(
         /*
          * for OS/2, ensure that buffers are spaced apart by at least a memory page
          * so that no page overlap will occur as OS/2 cannot properly lock in memory
-         * overlapping memory regions
+         * overlapping memory regions (note that OS/2 USB implementation works on
+         * transfer buffers directly, including locking down physical memory pages)
          */
-        total_transfer_size2 = (total_transfer_size / PAGE_SIZE + 1) * PAGE_SIZE;
+        total_transfer_size2 = (total_transfer_size / PAGE_SIZE + 2) * PAGE_SIZE;
         break;
       }
     }
