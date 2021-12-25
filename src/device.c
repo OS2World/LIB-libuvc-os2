@@ -365,6 +365,9 @@ static uvc_error_t uvc_open_internal(
 
   if (internal_devh->info->ctrl_if.bEndpointAddress) {
     internal_devh->status_xfer = libusb_alloc_transfer(0);
+
+    UVC_DEBUG("status_xfer: %p",internal_devh->status_xfer);
+
     if (!internal_devh->status_xfer) {
       ret = UVC_ERROR_NO_MEM;
       goto fail;
@@ -1650,11 +1653,15 @@ uvc_error_t uvc_parse_vs(
 void uvc_free_devh(uvc_device_handle_t *devh) {
   UVC_ENTER();
 
+  UVC_DEBUG("status_xfer: %p",devh->status_xfer);
+
   if (devh->info)
     uvc_free_device_info(devh->info);
 
   if (devh->status_xfer)
-    libusb_free_transfer(devh->status_xfer);
+  {
+    libusb_cancel_transfer(devh->status_xfer);
+  }
 
   free(devh);
 
@@ -1794,12 +1801,12 @@ void uvc_process_control_status(uvc_device_handle_t *devh, unsigned char *data, 
                     content, content_len,
                     devh->status_user_ptr);
   }
-  
+
   UVC_EXIT_VOID();
 }
 
 void uvc_process_streaming_status(uvc_device_handle_t *devh, unsigned char *data, int len) {
-  
+
   UVC_ENTER();
 
   if (len < 3) {
@@ -1815,7 +1822,7 @@ void uvc_process_streaming_status(uvc_device_handle_t *devh, unsigned char *data
       return;
     }
     UVC_DEBUG("Button (intf %u) %s len %d\n", data[1], data[3] ? "pressed" : "released", len);
-    
+
     if(devh->button_cb) {
       UVC_DEBUG("Running user-supplied button callback");
       devh->button_cb(data[1],
@@ -1830,7 +1837,7 @@ void uvc_process_streaming_status(uvc_device_handle_t *devh, unsigned char *data
 }
 
 void uvc_process_status_xfer(uvc_device_handle_t *devh, struct libusb_transfer *transfer) {
-  
+
   UVC_ENTER();
 
   /* printf("Got transfer of aLen = %d\n", transfer->actual_length); */
@@ -1862,6 +1869,7 @@ void LIBUSB_CALL _uvc_status_callback(struct libusb_transfer *transfer) {
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_NO_DEVICE:
     UVC_DEBUG("not processing/resubmitting, status = %d", transfer->status);
+    libusb_free_transfer(transfer);
     UVC_EXIT_VOID();
     return;
   case LIBUSB_TRANSFER_COMPLETED:
