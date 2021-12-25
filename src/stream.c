@@ -1046,6 +1046,12 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
   strmh->meta_outbuf = malloc( LIBUVC_XFER_META_BUF_SIZE );
   strmh->meta_holdbuf = malloc( LIBUVC_XFER_META_BUF_SIZE );
 
+  UVC_DEBUG("outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p",\
+                strmh->outbuf,\
+                strmh->holdbuf,\
+                strmh->meta_outbuf,\
+                strmh->meta_holdbuf);
+
   if (!strmh->outbuf || !strmh->holdbuf || !strmh->meta_outbuf || !strmh->meta_holdbuf)
   {
       free(strmh->outbuf);
@@ -1616,6 +1622,15 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
     uvc_stream_stop(strmh);
 
   uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
+
+  UVC_DEBUG("frame: %p, metadata: %p, outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p",\
+                strmh->frame.data,\
+                strmh->frame.metadata,\
+                strmh->outbuf,\
+                strmh->holdbuf,\
+                strmh->meta_outbuf,\
+                strmh->meta_holdbuf);
+
 
   free(strmh->frame.data);
   free(strmh->frame.metadata);
