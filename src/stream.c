@@ -677,6 +677,15 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
   strmh->last_scr = 0;
   strmh->pts = 0;
 
+  /*
+   * LARS ERDMANN:
+   * we move the condition broadcasting and
+   * the unlocking of the stream mutex to the very
+   * end. It is safer this way (the various stream
+   * parameters like seq, got_bytes etc. might need
+   * to be protected for change for as long as this
+   * swapping is not completed)
+   */
   pthread_cond_broadcast(&strmh->cb_cond);
   pthread_mutex_unlock(&strmh->cb_mutex);
 }
@@ -1208,12 +1217,19 @@ uvc_error_t uvc_stream_start(
                                 endpoint_bytes_per_packet - 1) / endpoint_bytes_per_packet;
 
         /* But keep a reasonable limit: Otherwise we start dropping data */
+        /*
+         * LARS ERDMANN:
+         * for OS/2, reduce this to 16 packets: OS/2 is limited in that it directly works
+         * on user buffers but that these buffers are limited to 60 kBytes in size due to
+         * the segmented nature of OS/2 16-bit device drivers
+         */
         if (packets_per_transfer > 16)
           packets_per_transfer = 16;
 
         total_transfer_size = packets_per_transfer * endpoint_bytes_per_packet;
 
         /*
+         * LARS ERDMANN:
          * for OS/2, ensure that buffers are spaced apart by at least a memory page
          * so that no page overlap will occur as OS/2 cannot properly lock in memory
          * overlapping memory regions (note that OS/2 USB implementation works on
@@ -1367,6 +1383,13 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_unlock(&strmh->cb_mutex);
 
+    /*
+     * LARS ERDMANN:
+     * we better check for validity of the data and metadata frame buffers,
+     * it is better to NOT offer data and metadata buffers to the user callback
+     * if we know already that they are not valid. We do not want a user callback
+     * to blow the library ...
+     */
     hasValidData     = (strmh->frame.data && strmh->frame.data_bytes);
     hasValidMetadata = ((!strmh->frame.metadata && !strmh->frame.metadata_bytes) || (strmh->frame.metadata && strmh->frame.metadata_bytes));
     if (hasValidData && hasValidMetadata)
@@ -1425,6 +1448,14 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   frame->capture_time_finished = strmh->capture_time_finished;
 
   /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
+  /*
+   * LARS ERDMANN:
+   * reworking the (re)allocation for the frame data and metadata buffers:
+   * realloc has some undefined behavior, in particular when it is called
+   * with NULL and 0 as its two parameter values. Additionally, on allocation
+   * failure, it DOES NOT free the buffer it already holds, therefore the
+   * application code has to do that
+   */
   if (strmh->hold_bytes > frame->data_bytes)
   {
       tmp = realloc(frame->data,strmh->hold_bytes);
@@ -1640,6 +1671,17 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
                 strmh->meta_holdbuf);
 
 
+  /*
+   * LARS ERDMANN:
+   * attempt to free not only the data but
+   * also the metadata frame buffers
+   * we build upon the fact that free(NULL)
+   * is defined to be a NOP, therefore there
+   * is no need to check for NULL pointers
+   * there is also no need to reset pointers
+   * to NULL as the whole strmh structure will
+   * be freed at the end of this call
+   */
   free(strmh->frame.data);
   free(strmh->frame.metadata);
 
