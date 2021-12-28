@@ -1660,7 +1660,11 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
   if (strmh->running)
     uvc_stream_stop(strmh);
 
-  uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
+  /*
+   * LARS ERDMANN:
+   * all control interfaces will be freed in "uvc_close" !!!
+   * uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
+   */
 
   UVC_DEBUG("frame: %p, metadata: %p, outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p",\
                 strmh->frame.data,\
