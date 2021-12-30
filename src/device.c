@@ -1707,16 +1707,9 @@ void uvc_free_devh(uvc_device_handle_t *devh) {
   if (devh->info)
     uvc_free_device_info(devh->info);
 
-  /*
-   * LARS ERDMANN:
-   * do NOT just free the transfer. Instead,
-   * cancel the transfer and wait for the
-   * cancellation notification in the callback
-   * to free the transfer
-   */
   if (devh->status_xfer)
   {
-    libusb_cancel_transfer(devh->status_xfer);
+    libusb_free_transfer(devh->status_xfer);
   }
 
   free(devh);
@@ -1924,15 +1917,7 @@ void LIBUSB_CALL _uvc_status_callback(struct libusb_transfer *transfer) {
   case LIBUSB_TRANSFER_ERROR:
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_NO_DEVICE:
-   /*
-    * LARS ERDMANN:
-    * do NOT just free the transfer. Instead,
-    * cancel the transfer and wait for the
-    * cancellation notification in the callback
-    * to free the transfer, also see "uvc_free_devh"
-    */
     UVC_DEBUG("not processing/resubmitting, status = %d", transfer->status);
-    libusb_free_transfer(transfer);
     UVC_EXIT_VOID();
     return;
   case LIBUSB_TRANSFER_COMPLETED:
