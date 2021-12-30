@@ -1118,7 +1118,7 @@ uvc_error_t uvc_stream_start(
   uvc_frame_desc_t *frame_desc;
   uvc_format_desc_t *format_desc;
   uvc_stream_ctrl_t *ctrl;
-  uvc_error_t ret;
+  uvc_error_t ret = UVC_SUCCESS;
   /* Total amount of data per transfer */
   size_t total_transfer_size = 0;
   size_t total_transfer_size2 = 0;
