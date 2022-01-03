@@ -949,7 +949,7 @@ void uvc_ref_device(uvc_device_t *dev) {
 
 /**
  * @brief Decrement the reference count for a device
- * @ingropu device
+ * @ingroup device
  * @note If the count reaches zero, the device will be discarded
  *
  * @param dev Device to unreference

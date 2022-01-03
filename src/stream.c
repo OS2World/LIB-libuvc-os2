@@ -652,8 +652,6 @@ uvc_error_t uvc_probe_still_ctrl(
 void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
   uint8_t *tmp_buf;
 
-  pthread_mutex_lock(&strmh->cb_mutex);
-
   (void)clock_gettime(CLOCK_MONOTONIC, &strmh->capture_time_finished);
 
   /* swap the buffers */
@@ -687,7 +685,6 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
    * swapping is not completed)
    */
   pthread_cond_broadcast(&strmh->cb_cond);
-  pthread_mutex_unlock(&strmh->cb_mutex);
 }
 
 /** @internal
@@ -713,9 +710,11 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xfa, 0xce
   };
 
+  pthread_mutex_lock(&strmh->cb_mutex);
+
   /* ignore empty payload transfers */
   if (payload_len == 0)
-    return;
+    goto leave;
 
   /* Certain iSight cameras have strange behavior: They send header
    * information in a packet with no image data, and then the following
@@ -736,7 +735,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
     if (header_len > payload_len) {
       UVC_DEBUG("bogus packet: actual_len=%zd, header_len=%zd\n", payload_len, header_len);
-      return;
+      goto leave;
     }
 
     if (strmh->devh->is_isight)
@@ -757,20 +756,20 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
     if (header_info & 0x40) {
       UVC_DEBUG("bad packet: error bit set");
-      return;
+      goto leave;
     }
 
     frameid_flipped = (strmh->fid != (header_info & 1));
     eof_signalled   = (header_info & 2);
 
-    if (frameid_flipped && !eof_signalled && (strmh->got_bytes != 0)) {
+    if (frameid_flipped && (strmh->got_bytes != 0)) {
       /* The frame ID bit was flipped, but we have image data sitting
          around from prior transfers. This means the camera didn't send
          an EOF for the last transfer of the previous frame. */
       _uvc_swap_buffers(strmh);
     }
 
-    strmh->fid = header_info & 1;
+    strmh->fid = (header_info & 1);
 
     if (header_info & (1 << 2)) {
       strmh->pts = DW_TO_INT(payload + variable_offset);
@@ -800,6 +799,8 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
       _uvc_swap_buffers(strmh);
     }
   }
+leave:
+  pthread_mutex_unlock(&strmh->cb_mutex);
 }
 
 /** @internal
@@ -816,9 +817,17 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   int resubmit = 1;
   int i = 0;
 
+  UVC_DEBUG("dev handle: %p, transfer buffer: %p, actual length: %d, num iso packets: %d, type: %d, status: %d",\
+                transfer->dev_handle,\
+                transfer->buffer,\
+                transfer->actual_length,\
+                transfer->num_iso_packets,\
+                transfer->type, \
+                transfer->status);
+
   switch (transfer->status) {
   case LIBUSB_TRANSFER_COMPLETED:
-    if (transfer->num_iso_packets == 0) {
+    if (transfer->type == LIBUSB_TRANSFER_TYPE_BULK) {
       /* This is a bulk mode transfer, so it just has one payload transfer */
       _uvc_process_payload(strmh, transfer->buffer, transfer->actual_length);
     } else {
@@ -853,8 +862,9 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
     for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
       if(strmh->transfers[i] == transfer) {
         UVC_DEBUG("Freeing transfer %d (%p)", i, transfer);
-        transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
-        libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
+        free(transfer->buffer);
+        transfer->buffer = NULL;
+        libusb_free_transfer(transfer);
         strmh->transfers[i] = NULL;
         strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
         break;
@@ -893,8 +903,9 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
           if(strmh->transfers[i] == transfer) {
             UVC_DEBUG("Freeing failed transfer %d (%p)", i, transfer);
-            transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
-            libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
+            free(transfer->buffer);
+            transfer->buffer = NULL;
+            libusb_free_transfer(transfer);
             strmh->transfers[i] = NULL;
             strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
             break;
@@ -914,8 +925,9 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
       for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
         if(strmh->transfers[i] == transfer) {
           UVC_DEBUG("Freeing orphan transfer %d (%p)", i, transfer);
-          transfer->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
-          libusb_free_transfer(transfer); /* implicitely frees transfer buffer because of LIBUSB_TRANSFER_FREE_BUFFER flag */
+          free(transfer->buffer);
+          transfer->buffer = NULL;
+          libusb_free_transfer(transfer);
           strmh->transfers[i] = NULL;
           strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
           break;
@@ -1320,10 +1332,11 @@ uvc_error_t uvc_stream_start(
   if ( ret != UVC_SUCCESS && transfer_id >= 0 ) {
     for ( ; transfer_id < clipped_transfers; transfer_id++)
     {
-      strmh->transfers[transfer_id]->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
+      free(strmh->transfers[transfer_id]->buffer);
+      strmh->transfers[transfer_id]->buffer = NULL;
       libusb_free_transfer ( strmh->transfers[transfer_id]);
-      strmh->transfers[transfer_id] = 0;
-      strmh->transfer_bufs[transfer_id] = 0;
+      strmh->transfers[transfer_id] = NULL;
+      strmh->transfer_bufs[transfer_id] = NULL;
     }
     ret = UVC_SUCCESS;
   }
@@ -1607,8 +1620,6 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   if (!strmh->running)
     return UVC_ERROR_INVALID_PARAM;
 
-  strmh->running = 0;
-
   pthread_mutex_lock(&strmh->cb_mutex);
 
   for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
@@ -1616,7 +1627,10 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
       int res = libusb_cancel_transfer(strmh->transfers[i]);
       if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND )
       {
-        strmh->transfers[i]->flags |= LIBUSB_TRANSFER_FREE_BUFFER;
+        UVC_DEBUG("Emergency freeing transfer %d (%p)", i, strmh->transfers[i]);
+
+        free(strmh->transfers[i]->buffer);
+        strmh->transfers[i]->buffer = NULL;
         libusb_free_transfer(strmh->transfers[i]);
         strmh->transfers[i] = NULL;
         strmh->transfer_bufs[i] = NULL;
@@ -1634,6 +1648,14 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
       break;
     pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
   } while(1);
+
+  /*
+   * LARS ERDMANN:
+   * only stop the stream once all the cancel requests have been processed
+   * by the stream callback so that the user thread will not stop prematurely
+   */
+  strmh->running = 0;
+
   // Kick the user thread awake
   pthread_cond_broadcast(&strmh->cb_cond);
   pthread_mutex_unlock(&strmh->cb_mutex);
@@ -1656,11 +1678,16 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
  *
  * @param strmh UVC stream handle
  */
-void uvc_stream_close(uvc_stream_handle_t *strmh) {
+void uvc_stream_close(uvc_stream_handle_t *strmh)
+{
+  UVC_ENTER();
+
   if (strmh->running)
     uvc_stream_stop(strmh);
 
   uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
+
+  pthread_mutex_lock(&strmh->cb_mutex);
 
   UVC_DEBUG("frame: %p, metadata: %p, outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p",\
                 strmh->frame.data,\
@@ -1691,9 +1718,15 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
   free(strmh->meta_outbuf);
   free(strmh->meta_holdbuf);
 
+  pthread_mutex_unlock(&strmh->cb_mutex);
+
   pthread_cond_destroy(&strmh->cb_cond);
   pthread_mutex_destroy(&strmh->cb_mutex);
 
+  UVC_DEBUG("devh: %p",strmh->devh);
+
   DL_DELETE(strmh->devh->streams, strmh);
   free(strmh);
+
+  UVC_EXIT_VOID();
 }

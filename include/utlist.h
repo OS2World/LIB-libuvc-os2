@@ -412,7 +412,9 @@ do {                                                                            
   if ((del)->prev == (del)) {                                                                  \
       (head)=NULL;                                                                             \
   } else if ((del)==(head)) {                                                                  \
-      (del)->next->prev = (del)->prev;                                                         \
+      if ((del)->next) {                                                                       \
+         (del)->next->prev = (del)->prev;                                                      \
+      }                                                                                        \
       (head) = (del)->next;                                                                    \
   } else {                                                                                     \
       (del)->prev->next = (del)->next;                                                         \
