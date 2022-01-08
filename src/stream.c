@@ -1689,13 +1689,14 @@ void uvc_stream_close(uvc_stream_handle_t *strmh)
 
   pthread_mutex_lock(&strmh->cb_mutex);
 
-  UVC_DEBUG("frame: %p, metadata: %p, outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p",\
+  UVC_DEBUG("frame: %p, metadata: %p, outbuf: %p, holdbuf: %p, meta_outbuf: %p, meta_holdbuf: %p, dev handle: %p",\
                 strmh->frame.data,\
                 strmh->frame.metadata,\
                 strmh->outbuf,\
                 strmh->holdbuf,\
                 strmh->meta_outbuf,\
-                strmh->meta_holdbuf);
+                strmh->meta_holdbuf,\
+                strmh->devh);
 
 
   /*
@@ -1722,8 +1723,6 @@ void uvc_stream_close(uvc_stream_handle_t *strmh)
 
   pthread_cond_destroy(&strmh->cb_cond);
   pthread_mutex_destroy(&strmh->cb_mutex);
-
-  UVC_DEBUG("devh: %p",strmh->devh);
 
   DL_DELETE(strmh->devh->streams, strmh);
   free(strmh);
