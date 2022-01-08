@@ -758,6 +758,17 @@ uvc_error_t uvc_get_device_list(
 	if (if_desc->bInterfaceClass == 14 && if_desc->bInterfaceSubClass == 2) {
 	  got_interface = 1;
 	}
+	
+	/*
+	 * LARS ERDMANN:
+	 * I have a Logitech QuickCam Fusion which reports it is vendor specific
+	 * but it operates as an ordinary UVC device
+	 */
+	/* Logitech QuickCam Fusion */
+	if ((0x046d == desc.idVendor) && (0x08c1 == desc.idProduct) && (if_desc->bInterfaceClass == 255) && (if_desc->bInterfaceSubClass == 2))
+	{
+	  got_interface = 1;
+	}
       }
     }
 
@@ -1067,6 +1078,17 @@ uvc_error_t uvc_scan_control(uvc_device_handle_t *devh, uvc_device_info_t *info)
   if ( 0x199e == dev_desc->idVendor && ( 0x8101 == dev_desc->idProduct ||
       0x8102 == dev_desc->idProduct )) {
     haveTISCamera = 1;
+  }
+
+  /*
+   * LARS ERDMANN:
+   * I have a Logitech QuickCam Fusion which reports it is vendor specific
+   * but it operates as an ordinary UVC device
+   */
+  /* Logitech QuickCam Fusion */
+  if ((0x046d == dev_desc->idVendor) && (0x08c1 == dev_desc->idProduct))
+  {
+      haveTISCamera = 1;
   }
   uvc_free_device_descriptor ( dev_desc );
 
