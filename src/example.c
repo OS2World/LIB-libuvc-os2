@@ -69,13 +69,13 @@ void cb(uvc_frame_t *frame, void *ptr) {
    */
 
   /* Use opencv.highgui to display the image:
-   * 
+   *
    * cvImg = cvCreateImageHeader(
    *     cvSize(bgr->width, bgr->height),
    *     IPL_DEPTH_8U,
    *     3);
    *
-   * cvSetData(cvImg, bgr->data, bgr->width * 3); 
+   * cvSetData(cvImg, bgr->data, bgr->width * 3);
    *
    * cvNamedWindow("Test", CV_WINDOW_AUTOSIZE);
    * cvShowImage("Test", cvImg);
@@ -175,26 +175,33 @@ int main(int argc, char **argv) {
 
         if (res < 0) {
           uvc_perror(res, "start_streaming"); /* unable to start stream */
-        } else {
+        }
+        else
+        {
+          uint8_t modes;
+          const uint8_t UVC_AUTO_EXPOSURE_MODE_AUTO = 2;
+          const uint8_t UVC_AUTO_EXPOSURE_MODE_APERTURE_PRIORITY = 8;
+
           puts("Streaming...");
 
+          /* query the available auto exposure modes */
+          res = uvc_get_ae_mode(devh,&modes,UVC_GET_RES);
+          printf("Available auto exposure modes: %#.2x ...\n",(unsigned int)modes);
           /* enable auto exposure - see uvc_set_ae_mode documentation */
           puts("Enabling auto exposure ...");
-          const uint8_t UVC_AUTO_EXPOSURE_MODE_AUTO = 2;
-          res = uvc_set_ae_mode(devh, UVC_AUTO_EXPOSURE_MODE_AUTO);
-          if (res == UVC_SUCCESS) {
-            puts(" ... enabled auto exposure");
-          } else if (res == UVC_ERROR_PIPE) {
-            /* this error indicates that the camera does not support the full AE mode;
-             * try again, using aperture priority mode (fixed aperture, variable exposure time) */
-            puts(" ... full AE not supported, trying aperture priority mode");
-            const uint8_t UVC_AUTO_EXPOSURE_MODE_APERTURE_PRIORITY = 8;
-            res = uvc_set_ae_mode(devh, UVC_AUTO_EXPOSURE_MODE_APERTURE_PRIORITY);
-            if (res < 0) {
-              uvc_perror(res, " ... uvc_set_ae_mode failed to enable aperture priority mode");
-            } else {
-              puts(" ... enabled aperture priority auto exposure mode");
-            }
+          if (modes & UVC_AUTO_EXPOSURE_MODE_AUTO) {
+             res = uvc_set_ae_mode(devh, UVC_AUTO_EXPOSURE_MODE_AUTO);
+             if (res == UVC_SUCCESS) {
+               puts(" ... enabled auto exposure");
+             }
+          }
+          else if (modes & UVC_AUTO_EXPOSURE_MODE_APERTURE_PRIORITY) {
+              res = uvc_set_ae_mode(devh, UVC_AUTO_EXPOSURE_MODE_APERTURE_PRIORITY);
+              if (res < 0) {
+                uvc_perror(res, " ... uvc_set_ae_mode failed to enable aperture priority mode");
+              } else {
+                puts(" ... enabled aperture priority auto exposure mode");
+              }
           } else {
             uvc_perror(res, " ... uvc_set_ae_mode failed to enable auto exposure mode");
           }
