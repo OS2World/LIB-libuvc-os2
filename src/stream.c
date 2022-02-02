@@ -470,12 +470,19 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
     int fps) {
   uvc_streaming_interface_t *stream_if;
 
+  /*
+   * preinitialize to all zeros just in case
+   * anybody tries to use "uvc_print_stream_ctrl"
+   * without checking for error return of this function ...
+   */
+  memset(ctrl,0,sizeof(*ctrl));
+
   /* find a matching frame descriptor and interval */
   DL_FOREACH(devh->info->stream_ifs, stream_if) {
-    uvc_format_desc_t *format;
+    uvc_format_desc_t *format = NULL;
 
     DL_FOREACH(stream_if->format_descs, format) {
-      uvc_frame_desc_t *frame;
+      uvc_frame_desc_t *frame = NULL;
 
       if (!_uvc_frame_format_matches_guid(cf, format->guidFormat))
         continue;
@@ -484,7 +491,7 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
         if (frame->wWidth != width || frame->wHeight != height)
           continue;
 
-        uint32_t *interval;
+        uint32_t *interval = NULL;
 
         ctrl->bInterfaceNumber = stream_if->bInterfaceNumber;
         UVC_DEBUG("claiming streaming interface %d", stream_if->bInterfaceNumber );
@@ -529,7 +536,7 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
   return UVC_ERROR_INVALID_MODE;
 
 found:
-  return uvc_probe_stream_ctrl(devh, ctrl);
+  return uvc_query_stream_ctrl(devh, ctrl, 0, UVC_SET_CUR);
 }
 
 /** Get a negotiated still control block for some common parameters.
@@ -584,7 +591,7 @@ uvc_error_t uvc_get_still_ctrl_format_size(
   return UVC_ERROR_INVALID_MODE;
 
   found:
-    return uvc_probe_still_ctrl(devh, still_ctrl);
+    return uvc_query_still_ctrl(devh, still_ctrl, 0, UVC_SET_CUR);
 }
 
 static int _uvc_stream_params_negotiated(
@@ -613,6 +620,11 @@ uvc_error_t uvc_probe_stream_ctrl(
     UVC_DEBUG("Unable to negotiate streaming format");
     return UVC_ERROR_INVALID_MODE;
   }
+
+  /*
+   * if successful, then actually set the new values
+   */
+  uvc_query_stream_ctrl( devh, ctrl, 0, UVC_SET_CUR );
 
   return UVC_SUCCESS;
 }
