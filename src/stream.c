@@ -536,7 +536,7 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
   return UVC_ERROR_INVALID_MODE;
 
 found:
-  return uvc_query_stream_ctrl(devh, ctrl, 0, UVC_SET_CUR);
+  return uvc_probe_stream_ctrl(devh, ctrl);
 }
 
 /** Get a negotiated still control block for some common parameters.
@@ -591,7 +591,7 @@ uvc_error_t uvc_get_still_ctrl_format_size(
   return UVC_ERROR_INVALID_MODE;
 
   found:
-    return uvc_query_still_ctrl(devh, still_ctrl, 0, UVC_SET_CUR);
+    return uvc_probe_still_ctrl(devh, still_ctrl);
 }
 
 static int _uvc_stream_params_negotiated(
@@ -806,7 +806,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     memcpy(strmh->outbuf + strmh->got_bytes, payload + header_len, data_len);
     strmh->got_bytes += data_len;
 
-    if (eof_signalled) {
+    if (!frameid_flipped && eof_signalled) {
       /* The EOF bit is set, so publish the complete frame */
       _uvc_swap_buffers(strmh);
     }
@@ -1473,6 +1473,8 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   frame->capture_time_finished = strmh->capture_time_finished;
 
   /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
+
+#if 0
   /*
    * LARS ERDMANN:
    * reworking the (re)allocation for the frame data and metadata buffers:
@@ -1522,6 +1524,12 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
       memcpy(frame->metadata, strmh->meta_holdbuf, strmh->meta_hold_bytes);
       frame->metadata_bytes = strmh->meta_hold_bytes;
   }
+#endif
+  frame->data = strmh->holdbuf;
+  frame->data_bytes = strmh->hold_bytes;
+
+  frame->metadata = strmh->meta_hold_bytes ? strmh->meta_holdbuf : NULL;
+  frame->metadata_bytes = strmh->meta_hold_bytes;
 }
 
 /** Poll for a frame
@@ -1711,6 +1719,7 @@ void uvc_stream_close(uvc_stream_handle_t *strmh)
                 strmh->devh);
 
 
+#if 0
   /*
    * LARS ERDMANN:
    * attempt to free not only the data but
@@ -1724,6 +1733,7 @@ void uvc_stream_close(uvc_stream_handle_t *strmh)
    */
   free(strmh->frame.data);
   free(strmh->frame.metadata);
+#endif
 
   free(strmh->outbuf);
   free(strmh->holdbuf);
