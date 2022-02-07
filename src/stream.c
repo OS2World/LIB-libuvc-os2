@@ -668,9 +668,9 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
 
   /* swap the buffers */
   tmp_buf = strmh->holdbuf;
-  strmh->hold_bytes = strmh->got_bytes;
   strmh->holdbuf = strmh->outbuf;
   strmh->outbuf = tmp_buf;
+  strmh->hold_bytes = strmh->got_bytes;
   strmh->hold_last_scr = strmh->last_scr;
   strmh->hold_pts = strmh->pts;
   strmh->hold_seq = strmh->seq;
@@ -797,12 +797,16 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     if (header_len > variable_offset)
     {
         // Metadata is attached to header
+        if (strmh->meta_got_bytes >  LIBUVC_XFER_META_BUF_SIZE) printf("strmh->meta_outbuf, offset %u > max size:%u !\n",strmh->meta_got_bytes,LIBUVC_XFER_META_BUF_SIZE);
         memcpy(strmh->meta_outbuf + strmh->meta_got_bytes, payload + variable_offset, header_len - variable_offset);
         strmh->meta_got_bytes += header_len - variable_offset;
     }
   }
 
-  if (data_len > 0) {
+  if (strmh->got_bytes >  strmh->cur_ctrl.dwMaxVideoFrameSize) printf("strmh->outbuf, offset: %u > max size:%u !\n",strmh->got_bytes,strmh->cur_ctrl.dwMaxVideoFrameSize);
+
+  if ((strmh->got_bytes + data_len) <= strmh->cur_ctrl.dwMaxVideoFrameSize)
+  {
     memcpy(strmh->outbuf + strmh->got_bytes, payload + header_len, data_len);
     strmh->got_bytes += data_len;
 
@@ -826,7 +830,7 @@ leave:
 void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   uvc_stream_handle_t *strmh = transfer->user_data;
 
-  int resubmit = 1;
+  int resubmit = 0;
   int i = 0;
 
   UVC_DEBUG("dev handle: %p, transfer buffer: %p, actual length: %d, num iso packets: %d, type: %d, status: %d",\
@@ -863,10 +867,12 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
 
       }
     }
+    resubmit = 1;
     break;
+
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_ERROR:
-  case LIBUSB_TRANSFER_NO_DEVICE: {
+  case LIBUSB_TRANSFER_NO_DEVICE:
     UVC_DEBUG("not retrying transfer, status = %d", transfer->status);
     pthread_mutex_lock(&strmh->cb_mutex);
 
@@ -886,17 +892,15 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
       UVC_DEBUG("transfer %p not found; not freeing!", transfer);
     }
 
-    resubmit = 0;
-
     pthread_cond_broadcast(&strmh->cb_cond);
     pthread_mutex_unlock(&strmh->cb_mutex);
-
     break;
-  }
+
   case LIBUSB_TRANSFER_TIMED_OUT:
   case LIBUSB_TRANSFER_STALL:
   case LIBUSB_TRANSFER_OVERFLOW:
     UVC_DEBUG("retrying transfer, status = %d", transfer->status);
+    resubmit = 1;
     break;
   }
 
@@ -1392,13 +1396,16 @@ void *_uvc_user_caller(void *arg) {
   uint32_t hasValidData,hasValidMetadata;
 
   do {
+
     pthread_mutex_lock(&strmh->cb_mutex);
 
-    while (strmh->running && last_seq == strmh->hold_seq) {
+    if (last_seq == strmh->hold_seq)
+    {
       pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
     }
 
-    if (!strmh->running) {
+    if (!strmh->running)
+    {
       pthread_mutex_unlock(&strmh->cb_mutex);
       break;
     }
@@ -1472,62 +1479,20 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
   frame->sequence = strmh->hold_seq;
   frame->capture_time_finished = strmh->capture_time_finished;
 
-  /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
-
-#if 0
   /*
-   * LARS ERDMANN:
-   * reworking the (re)allocation for the frame data and metadata buffers:
-   * realloc has some undefined behavior, in particular when it is called
-   * with NULL and 0 as its two parameter values. Additionally, on allocation
-   * failure, it DOES NOT free the buffer it already holds, therefore the
-   * application code has to do that
+   * set the frame data/metadata pointer to the hold buffer
+   * this also means, the data needs to be consumed before
+   * the double buffer pointers are swapped again
+   * but we save ourselves an additional copy
    */
-  if (strmh->hold_bytes > frame->data_bytes)
-  {
-      tmp = realloc(frame->data,strmh->hold_bytes);
-      if (tmp)
-      {
-          frame->data = tmp;
-      }
-      else
-      {
-          uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating frame data buffer");
-          free(frame->data);
-          frame->data = NULL;
-      }
-  }
-  frame->data_bytes = 0;
-  if (frame->data && (strmh->hold_bytes > 0))
-  {
-      memcpy(frame->data, strmh->holdbuf, strmh->hold_bytes);
-      frame->data_bytes = strmh->hold_bytes;
-  }
-
-  if (strmh->meta_hold_bytes > frame->metadata_bytes)
-  {
-      tmp = realloc(frame->metadata,strmh->meta_hold_bytes);
-      if (tmp)
-      {
-          frame->metadata = tmp;
-      }
-      else
-      {
-          uvc_perror(UVC_ERROR_NO_MEM,"uvc_populate_frame, allocating metadata buffer");
-          free(frame->metadata);
-          frame->metadata = NULL;
-      }
-  }
-  frame->metadata_bytes = 0;
-  if (frame->metadata && (strmh->meta_hold_bytes > 0))
-  {
-      memcpy(frame->metadata, strmh->meta_holdbuf, strmh->meta_hold_bytes);
-      frame->metadata_bytes = strmh->meta_hold_bytes;
-  }
-#endif
   frame->data = strmh->holdbuf;
   frame->data_bytes = strmh->hold_bytes;
 
+  /*
+   * special treatment for metadata: if we did not receive any
+   * we then also do not set the metadata pointer
+   * this is checked for on invoking the user thread
+   */
   frame->metadata = strmh->meta_hold_bytes ? strmh->meta_holdbuf : NULL;
   frame->metadata_bytes = strmh->meta_hold_bytes;
 }
@@ -1643,7 +1608,9 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   pthread_mutex_lock(&strmh->cb_mutex);
 
   for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
-    if(strmh->transfers[i] != NULL) {
+    if(strmh->transfers[i] != NULL)
+    {
+      strmh->transfers[i]->status = LIBUSB_TRANSFER_CANCELLED;
       int res = libusb_cancel_transfer(strmh->transfers[i]);
       if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND )
       {
@@ -1680,6 +1647,8 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   pthread_cond_broadcast(&strmh->cb_cond);
   pthread_mutex_unlock(&strmh->cb_mutex);
 
+  printf("stream_stop, jetzt auf Userthread Ende warten...\n");
+
   /** @todo stop the actual stream, camera side? */
 
   if (strmh->user_cb) {
@@ -1687,6 +1656,8 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
      * LIBUSB_TRANSFER_CANCELLED transfer) */
     pthread_join(strmh->cb_thread, NULL);
   }
+
+  printf("stream_stop, jetzt Userthread zu Ende !\n");
 
   return UVC_SUCCESS;
 }
@@ -1717,23 +1688,6 @@ void uvc_stream_close(uvc_stream_handle_t *strmh)
                 strmh->meta_outbuf,\
                 strmh->meta_holdbuf,\
                 strmh->devh);
-
-
-#if 0
-  /*
-   * LARS ERDMANN:
-   * attempt to free not only the data but
-   * also the metadata frame buffers
-   * we build upon the fact that free(NULL)
-   * is defined to be a NOP, therefore there
-   * is no need to check for NULL pointers
-   * there is also no need to reset pointers
-   * to NULL as the whole strmh structure will
-   * be freed at the end of this call
-   */
-  free(strmh->frame.data);
-  free(strmh->frame.metadata);
-#endif
 
   free(strmh->outbuf);
   free(strmh->holdbuf);
