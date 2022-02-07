@@ -1647,8 +1647,6 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   pthread_cond_broadcast(&strmh->cb_cond);
   pthread_mutex_unlock(&strmh->cb_mutex);
 
-  printf("stream_stop, jetzt auf Userthread Ende warten...\n");
-
   /** @todo stop the actual stream, camera side? */
 
   if (strmh->user_cb) {
@@ -1656,8 +1654,6 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
      * LIBUSB_TRANSFER_CANCELLED transfer) */
     pthread_join(strmh->cb_thread, NULL);
   }
-
-  printf("stream_stop, jetzt Userthread zu Ende !\n");
 
   return UVC_SUCCESS;
 }
