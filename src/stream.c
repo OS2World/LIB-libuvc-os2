@@ -796,14 +796,16 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
     if (header_len > variable_offset)
     {
+        size_t meta_len = header_len - variable_offset;
+
         // Metadata is attached to header
-        if (strmh->meta_got_bytes >  LIBUVC_XFER_META_BUF_SIZE) printf("strmh->meta_outbuf, offset %u > max size:%u !\n",strmh->meta_got_bytes,LIBUVC_XFER_META_BUF_SIZE);
-        memcpy(strmh->meta_outbuf + strmh->meta_got_bytes, payload + variable_offset, header_len - variable_offset);
-        strmh->meta_got_bytes += header_len - variable_offset;
+        if ((strmh->meta_got_bytes + meta_len) <=  LIBUVC_XFER_META_BUF_SIZE)
+        {
+           memcpy(strmh->meta_outbuf + strmh->meta_got_bytes, payload + variable_offset, meta_len);
+           strmh->meta_got_bytes += meta_len;
+        }
     }
   }
-
-  if (strmh->got_bytes >  strmh->cur_ctrl.dwMaxVideoFrameSize) printf("strmh->outbuf, offset: %u > max size:%u !\n",strmh->got_bytes,strmh->cur_ctrl.dwMaxVideoFrameSize);
 
   if ((strmh->got_bytes + data_len) <= strmh->cur_ctrl.dwMaxVideoFrameSize)
   {
