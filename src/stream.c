@@ -715,6 +715,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
   size_t data_len;
   unsigned int frameid_flipped = 0;
   unsigned int eof_signalled   = 0;
+  unsigned int pts = 0;
 
   /* magic numbers for identifying header packets from some iSight cameras */
   static uint8_t isight_tag[] = {
@@ -774,18 +775,24 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     frameid_flipped = (strmh->fid != (header_info & 1));
     eof_signalled   = (header_info & 2);
 
-    if (frameid_flipped && (strmh->got_bytes != 0)) {
-      /* The frame ID bit was flipped, but we have image data sitting
-         around from prior transfers. This means the camera didn't send
-         an EOF for the last transfer of the previous frame. */
-      _uvc_swap_buffers(strmh);
-    }
+//    if (frameid_flipped && (strmh->got_bytes != 0)) {
+//      /* The frame ID bit was flipped, but we have image data sitting
+//         around from prior transfers. This means the camera didn't send
+//         an EOF for the last transfer of the previous frame. */
+//      _uvc_swap_buffers(strmh);
+//    }
 
     strmh->fid = (header_info & 1);
 
-    if (header_info & (1 << 2)) {
-      strmh->pts = DW_TO_INT(payload + variable_offset);
+    if (header_info & (1 << 2))
+    {
+      pts = DW_TO_INT(payload + variable_offset);
       variable_offset += 4;
+    }
+
+    if ((strmh->pts && (strmh->pts != pts)))
+    {
+       eof_signalled = 1;
     }
 
     if (header_info & (1 << 3)) {
@@ -812,11 +819,14 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     memcpy(strmh->outbuf + strmh->got_bytes, payload + header_len, data_len);
     strmh->got_bytes += data_len;
 
-    if (!frameid_flipped && eof_signalled) {
-      /* The EOF bit is set, so publish the complete frame */
-      _uvc_swap_buffers(strmh);
-    }
   }
+
+  if (eof_signalled) {
+    /* The EOF bit is set, so publish the complete frame */
+    _uvc_swap_buffers(strmh);
+  }
+  strmh->pts = pts;
+
 leave:
   pthread_mutex_unlock(&strmh->cb_mutex);
 }
