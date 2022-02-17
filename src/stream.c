@@ -496,15 +496,12 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
         ctrl->bInterfaceNumber = stream_if->bInterfaceNumber;
         UVC_DEBUG("claiming streaming interface %d", stream_if->bInterfaceNumber );
         uvc_claim_if(devh, ctrl->bInterfaceNumber);
-        /* get the max values */
-        uvc_query_stream_ctrl( devh, ctrl, 1, UVC_GET_MAX);
 
         if (frame->intervals) {
           for (interval = frame->intervals; *interval; ++interval) {
             // allow a fps rate of zero to mean "accept first rate available"
             if (10000000 / *interval == (unsigned int) fps || fps == 0) {
 
-              ctrl->bmHint = (1 << 0); /* don't negotiate interval */
               ctrl->bFormatIndex = format->bFormatIndex;
               ctrl->bFrameIndex = frame->bFrameIndex;
               ctrl->dwFrameInterval = *interval;
@@ -521,7 +518,6 @@ uvc_error_t uvc_get_stream_ctrl_format_size(
               && !(interval_offset
                    && (interval_offset % frame->dwFrameIntervalStep))) {
 
-            ctrl->bmHint = (1 << 0);
             ctrl->bFormatIndex = format->bFormatIndex;
             ctrl->bFrameIndex = frame->bFrameIndex;
             ctrl->dwFrameInterval = interval_100ns;
