@@ -681,7 +681,6 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
   strmh->got_bytes = 0;
   strmh->meta_got_bytes = 0;
   strmh->last_scr = 0;
-  strmh->pts = 0;
 
   /*
    * LARS ERDMANN:
@@ -783,7 +782,6 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     {
        eof_signalled = 1;
     }
-    strmh->pts = pts;
 
     if (header_info & (1 << 3)) {
       /** @todo read the SOF token counter */
@@ -815,6 +813,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     /* The EOF bit is set, so publish the complete frame */
     _uvc_swap_buffers(strmh);
   }
+  strmh->pts = pts;
 
 leave:
   pthread_mutex_unlock(&strmh->cb_mutex);
