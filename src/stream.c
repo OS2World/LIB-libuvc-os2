@@ -771,13 +771,6 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     frameid_flipped = (strmh->fid != (header_info & 1));
     eof_signalled   = (header_info & 2);
 
-//    if (frameid_flipped && (strmh->got_bytes != 0)) {
-//      /* The frame ID bit was flipped, but we have image data sitting
-//         around from prior transfers. This means the camera didn't send
-//         an EOF for the last transfer of the previous frame. */
-//      _uvc_swap_buffers(strmh);
-//    }
-
     strmh->fid = (header_info & 1);
 
     if (header_info & (1 << 2))
@@ -790,6 +783,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     {
        eof_signalled = 1;
     }
+    strmh->pts = pts;
 
     if (header_info & (1 << 3)) {
       /** @todo read the SOF token counter */
@@ -821,7 +815,6 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     /* The EOF bit is set, so publish the complete frame */
     _uvc_swap_buffers(strmh);
   }
-  strmh->pts = pts;
 
 leave:
   pthread_mutex_unlock(&strmh->cb_mutex);
