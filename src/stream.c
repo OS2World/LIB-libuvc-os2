@@ -241,7 +241,10 @@ uvc_error_t uvc_query_stream_ctrl(
   }
 
   /* now decode following a GET transfer */
-  if (req != UVC_SET_CUR) {
+  if (req != UVC_SET_CUR)
+  {
+    uvc_frame_desc_t *frame = NULL;
+
     ctrl->bmHint = SW_TO_SHORT(buf);
     ctrl->bFormatIndex = buf[2];
     ctrl->bFrameIndex = buf[3];
@@ -265,13 +268,13 @@ uvc_error_t uvc_query_stream_ctrl(
     else
       ctrl->dwClockFrequency = devh->info->ctrl_if.dwClockFrequency;
 
-    /* fix up block for cameras that fail to set dwMax* */
-    if (ctrl->dwMaxVideoFrameSize == 0) {
-      uvc_frame_desc_t *frame = uvc_find_frame_desc(devh, ctrl->bFormatIndex, ctrl->bFrameIndex);
-
-      if (frame) {
-        ctrl->dwMaxVideoFrameSize = frame->dwMaxVideoFrameBufferSize;
-      }
+    frame = uvc_find_frame_desc(devh, ctrl->bFormatIndex, ctrl->bFrameIndex);
+    if (frame)
+    {
+        if ((ctrl->dwMaxVideoFrameSize == 0) || (frame->dwMaxVideoFrameBufferSize < ctrl->dwMaxVideoFrameSize) )
+        {
+            ctrl->dwMaxVideoFrameSize = frame->dwMaxVideoFrameBufferSize;
+        }
     }
   }
 
@@ -1457,9 +1460,11 @@ void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
 
   switch (frame->frame_format) {
   case UVC_FRAME_FORMAT_BGR:
+  case UVC_FRAME_FORMAT_RGB:
     frame->step = frame->width * 3;
     break;
   case UVC_FRAME_FORMAT_YUYV:
+  case UVC_FRAME_FORMAT_UYVY:
     frame->step = frame->width * 2;
     break;
   case UVC_FRAME_FORMAT_NV12:

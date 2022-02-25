@@ -145,31 +145,20 @@ uvc_error_t uvc_duplicate_frame(uvc_frame_t *in, uvc_frame_t *out) {
   return UVC_SUCCESS;
 }
 
-#define YUYV2RGB_2(pyuv, prgb) { \
-    float r = 1.402f * ((pyuv)[3]-128); \
-    float g = -0.34414f * ((pyuv)[1]-128) - 0.71414f * ((pyuv)[3]-128); \
-    float b = 1.772f * ((pyuv)[1]-128); \
-    (prgb)[0] = sat(pyuv[0] + r); \
-    (prgb)[1] = sat(pyuv[0] + g); \
-    (prgb)[2] = sat(pyuv[0] + b); \
-    (prgb)[3] = sat(pyuv[2] + r); \
-    (prgb)[4] = sat(pyuv[2] + g); \
-    (prgb)[5] = sat(pyuv[2] + b); \
-    }
 #define IYUYV2RGB_2(pyuv, prgb) { \
-    int r = (22987 * ((pyuv)[3] - 128)) >> 14; \
-    int g = (-5636 * ((pyuv)[1] - 128) - 11698 * ((pyuv)[3] - 128)) >> 14; \
-    int b = (29049 * ((pyuv)[1] - 128)) >> 14; \
-    (prgb)[0] = sat(*(pyuv) + r); \
-    (prgb)[1] = sat(*(pyuv) + g); \
-    (prgb)[2] = sat(*(pyuv) + b); \
-    (prgb)[3] = sat((pyuv)[2] + r); \
-    (prgb)[4] = sat((pyuv)[2] + g); \
-    (prgb)[5] = sat((pyuv)[2] + b); \
+    int r = (22987 * (*((pyuv)+3) - 128)) >> 14; \
+    int g = (-5636 * (*((pyuv)+1) - 128) - 11698 * (*((pyuv)+3) - 128)) >> 14; \
+    int b = (29049 * (*((pyuv)+1) - 128)) >> 14; \
+    *((prgb)+0) = sat(*((pyuv)+0) + r); \
+    *((prgb)+1) = sat(*((pyuv)+0) + g); \
+    *((prgb)+2) = sat(*((pyuv)+0) + b); \
+    *((prgb)+3) = sat(*((pyuv)+2) + r); \
+    *((prgb)+4) = sat(*((pyuv)+2) + g); \
+    *((prgb)+5) = sat(*((pyuv)+2) + b); \
     }
-#define IYUYV2RGB_16(pyuv, prgb) IYUYV2RGB_8(pyuv, prgb); IYUYV2RGB_8(pyuv + 16, prgb + 24);
-#define IYUYV2RGB_8(pyuv, prgb) IYUYV2RGB_4(pyuv, prgb); IYUYV2RGB_4(pyuv + 8, prgb + 12);
-#define IYUYV2RGB_4(pyuv, prgb) IYUYV2RGB_2(pyuv, prgb); IYUYV2RGB_2(pyuv + 4, prgb + 6);
+#define IYUYV2RGB_16(pyuv, prgb) IYUYV2RGB_8((pyuv), (prgb)); IYUYV2RGB_8(((pyuv) + 16), ((prgb) + 24));
+#define IYUYV2RGB_8(pyuv, prgb) IYUYV2RGB_4((pyuv), (prgb)); IYUYV2RGB_4(((pyuv) + 8), ((prgb) + 12));
+#define IYUYV2RGB_4(pyuv, prgb) IYUYV2RGB_2((pyuv), (prgb)); IYUYV2RGB_2(((pyuv) + 4), ((prgb) + 6));
 
 /** @brief Convert a frame from YUYV to RGB
  * @ingroup frame
@@ -208,19 +197,19 @@ uvc_error_t uvc_yuyv2rgb(uvc_frame_t *in, uvc_frame_t *out) {
 }
 
 #define IYUYV2BGR_2(pyuv, pbgr) { \
-    int r = (22987 * ((pyuv)[3] - 128)) >> 14; \
-    int g = (-5636 * ((pyuv)[1] - 128) - 11698 * ((pyuv)[3] - 128)) >> 14; \
-    int b = (29049 * ((pyuv)[1] - 128)) >> 14; \
-    (pbgr)[0] = sat(*(pyuv) + b); \
-    (pbgr)[1] = sat(*(pyuv) + g); \
-    (pbgr)[2] = sat(*(pyuv) + r); \
-    (pbgr)[3] = sat((pyuv)[2] + b); \
-    (pbgr)[4] = sat((pyuv)[2] + g); \
-    (pbgr)[5] = sat((pyuv)[2] + r); \
+    int r = (22987 * (*((pyuv)+3) - 128)) >> 14; \
+    int g = (-5636 * (*((pyuv)+1) - 128) - 11698 * (*((pyuv)+3) - 128)) >> 14; \
+    int b = (29049 * (*((pyuv)+1) - 128)) >> 14; \
+    *((pbgr)+0) = sat(*((pyuv)+0) + b); \
+    *((pbgr)+1) = sat(*((pyuv)+0) + g); \
+    *((pbgr)+2) = sat(*((pyuv)+0) + r); \
+    *((pbgr)+3) = sat(*((pyuv)+2) + b); \
+    *((pbgr)+4) = sat(*((pyuv)+2) + g); \
+    *((pbgr)+5) = sat(*((pyuv)+2) + r); \
     }
-#define IYUYV2BGR_16(pyuv, pbgr) IYUYV2BGR_8(pyuv, pbgr); IYUYV2BGR_8(pyuv + 16, pbgr + 24);
-#define IYUYV2BGR_8(pyuv, pbgr) IYUYV2BGR_4(pyuv, pbgr); IYUYV2BGR_4(pyuv + 8, pbgr + 12);
-#define IYUYV2BGR_4(pyuv, pbgr) IYUYV2BGR_2(pyuv, pbgr); IYUYV2BGR_2(pyuv + 4, pbgr + 6);
+#define IYUYV2BGR_16(pyuv, pbgr) IYUYV2BGR_8((pyuv), (pbgr)); IYUYV2BGR_8(((pyuv) + 16), ((pbgr) + 24));
+#define IYUYV2BGR_8(pyuv, pbgr) IYUYV2BGR_4((pyuv), (pbgr)); IYUYV2BGR_4(((pyuv) + 8), ((pbgr) + 12));
+#define IYUYV2BGR_4(pyuv, pbgr) IYUYV2BGR_2((pyuv), (pbgr)); IYUYV2BGR_2(((pyuv) + 4), ((pbgr) + 6));
 
 /** @brief Convert a frame from YUYV to BGR
  * @ingroup frame
@@ -339,19 +328,19 @@ uvc_error_t uvc_yuyv2uv(uvc_frame_t *in, uvc_frame_t *out) {
 }
 
 #define IUYVY2RGB_2(pyuv, prgb) { \
-    int r = (22987 * ((pyuv)[2] - 128)) >> 14; \
-    int g = (-5636 * ((pyuv)[0] - 128) - 11698 * ((pyuv)[2] - 128)) >> 14; \
-    int b = (29049 * ((pyuv)[0] - 128)) >> 14; \
-    (prgb)[0] = sat((pyuv)[1] + r); \
-    (prgb)[1] = sat((pyuv)[1] + g); \
-    (prgb)[2] = sat((pyuv)[1] + b); \
-    (prgb)[3] = sat((pyuv)[3] + r); \
-    (prgb)[4] = sat((pyuv)[3] + g); \
-    (prgb)[5] = sat((pyuv)[3] + b); \
+    int r = (22987 * (*((pyuv)+2) - 128)) >> 14; \
+    int g = (-5636 * (*((pyuv)+0) - 128) - 11698 * (*((pyuv)+2) - 128)) >> 14; \
+    int b = (29049 * (*((pyuv)+0) - 128)) >> 14; \
+    *((prgb)+0) = sat(*((pyuv)+1) + r); \
+    *((prgb)+1) = sat(*((pyuv)+1) + g); \
+    *((prgb)+2) = sat(*((pyuv)+1) + b); \
+    *((prgb)+3) = sat(*((pyuv)+3) + r); \
+    *((prgb)+4) = sat(*((pyuv)+3) + g); \
+    *((prgb)+5) = sat(*((pyuv)+3) + b); \
     }
-#define IUYVY2RGB_16(pyuv, prgb) IUYVY2RGB_8(pyuv, prgb); IUYVY2RGB_8(pyuv + 16, prgb + 24);
-#define IUYVY2RGB_8(pyuv, prgb) IUYVY2RGB_4(pyuv, prgb); IUYVY2RGB_4(pyuv + 8, prgb + 12);
-#define IUYVY2RGB_4(pyuv, prgb) IUYVY2RGB_2(pyuv, prgb); IUYVY2RGB_2(pyuv + 4, prgb + 6);
+#define IUYVY2RGB_16(pyuv, prgb) IUYVY2RGB_8((pyuv), (prgb)); IUYVY2RGB_8(((pyuv) + 16), ((prgb) + 24));
+#define IUYVY2RGB_8(pyuv, prgb) IUYVY2RGB_4((pyuv), (prgb)); IUYVY2RGB_4(((pyuv) + 8), ((prgb) + 12));
+#define IUYVY2RGB_4(pyuv, prgb) IUYVY2RGB_2((pyuv), (prgb)); IUYVY2RGB_2(((pyuv) + 4), ((prgb) + 6));
 
 /** @brief Convert a frame from UYVY to RGB
  * @ingroup frame
@@ -389,19 +378,19 @@ uvc_error_t uvc_uyvy2rgb(uvc_frame_t *in, uvc_frame_t *out) {
 }
 
 #define IUYVY2BGR_2(pyuv, pbgr) { \
-    int r = (22987 * ((pyuv)[2] - 128)) >> 14; \
-    int g = (-5636 * ((pyuv)[0] - 128) - 11698 * ((pyuv)[2] - 128)) >> 14; \
-    int b = (29049 * ((pyuv)[0] - 128)) >> 14; \
-    (pbgr)[0] = sat((pyuv)[1] + b); \
-    (pbgr)[1] = sat((pyuv)[1] + g); \
-    (pbgr)[2] = sat((pyuv)[1] + r); \
-    (pbgr)[3] = sat((pyuv)[3] + b); \
-    (pbgr)[4] = sat((pyuv)[3] + g); \
-    (pbgr)[5] = sat((pyuv)[3] + r); \
+    int r = (22987 * (*((pyuv)+2) - 128)) >> 14; \
+    int g = (-5636 * (*((pyuv)+0) - 128) - 11698 * (*((pyuv)+2) - 128)) >> 14; \
+    int b = (29049 * (*((pyuv)+0) - 128)) >> 14; \
+    *((pbgr)+0) = sat(*((pyuv)+1) + b); \
+    *((pbgr)+1) = sat(*((pyuv)+1) + g); \
+    *((pbgr)+2) = sat(*((pyuv)+1) + r); \
+    *((pbgr)+3) = sat(*((pyuv)+3) + b); \
+    *((pbgr)+4) = sat(*((pyuv)+3) + g); \
+    *((pbgr)+5) = sat(*((pyuv)+3) + r); \
     }
-#define IUYVY2BGR_16(pyuv, pbgr) IUYVY2BGR_8(pyuv, pbgr); IUYVY2BGR_8(pyuv + 16, pbgr + 24);
-#define IUYVY2BGR_8(pyuv, pbgr) IUYVY2BGR_4(pyuv, pbgr); IUYVY2BGR_4(pyuv + 8, pbgr + 12);
-#define IUYVY2BGR_4(pyuv, pbgr) IUYVY2BGR_2(pyuv, pbgr); IUYVY2BGR_2(pyuv + 4, pbgr + 6);
+#define IUYVY2BGR_16(pyuv, pbgr) IUYVY2BGR_8((pyuv), (pbgr)); IUYVY2BGR_8(((pyuv) + 16), ((pbgr) + 24));
+#define IUYVY2BGR_8(pyuv, pbgr) IUYVY2BGR_4((pyuv), (pbgr)); IUYVY2BGR_4(((pyuv) + 8), ((pbgr) + 12));
+#define IUYVY2BGR_4(pyuv, pbgr) IUYVY2BGR_2((pyuv), (pbgr)); IUYVY2BGR_2(((pyuv) + 4), ((pbgr) + 6));
 
 /** @brief Convert a frame from UYVY to BGR
  * @ingroup frame
