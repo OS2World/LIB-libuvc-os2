@@ -687,8 +687,7 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
 
   /*
    * LARS ERDMANN:
-   * we move the condition broadcasting and
-   * the unlocking of the stream mutex to the very
+   * we move the condition broadcasting to the very
    * end. It is safer this way (the various stream
    * parameters like seq, got_bytes etc. might need
    * to be protected for change for as long as this
@@ -713,7 +712,6 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
   size_t data_len;
   unsigned int frameid_flipped = 0;
   unsigned int eof_signalled   = 0;
-  unsigned int pts = 0;
 
   /* magic numbers for identifying header packets from some iSight cameras */
   static uint8_t isight_tag[] = {
@@ -777,13 +775,8 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
     if (header_info & (1 << 2))
     {
-      pts = DW_TO_INT(payload + variable_offset);
+      strmh->pts = DW_TO_INT(payload + variable_offset);
       variable_offset += 4;
-    }
-
-    if ((strmh->pts && (strmh->pts != pts)))
-    {
-       eof_signalled = 1;
     }
 
     if (header_info & (1 << 3)) {
@@ -816,7 +809,6 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
     /* The EOF bit is set, so publish the complete frame */
     _uvc_swap_buffers(strmh);
   }
-  strmh->pts = pts;
 
 leave:
   pthread_mutex_unlock(&strmh->cb_mutex);
