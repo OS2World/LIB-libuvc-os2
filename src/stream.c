@@ -271,7 +271,7 @@ uvc_error_t uvc_query_stream_ctrl(
     frame = uvc_find_frame_desc(devh, ctrl->bFormatIndex, ctrl->bFrameIndex);
     if (frame)
     {
-        if ((ctrl->dwMaxVideoFrameSize == 0) || (frame->dwMaxVideoFrameBufferSize < ctrl->dwMaxVideoFrameSize) )
+        if (ctrl->dwMaxVideoFrameSize == 0)
         {
             ctrl->dwMaxVideoFrameSize = frame->dwMaxVideoFrameBufferSize;
         }
