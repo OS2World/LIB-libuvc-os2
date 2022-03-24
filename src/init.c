@@ -105,12 +105,9 @@ uvc_error_t uvc_init(uvc_context_t **pctx, struct libusb_context *usb_ctx) {
   uvc_error_t ret = UVC_SUCCESS;
   uvc_context_t *ctx = calloc(1, sizeof(*ctx));
 
-  *pctx = NULL;                 /* LARS ERDMANN: preinitialize the returned pointer to NULL, just in case ... */
-
   if (usb_ctx == NULL) {
-    ret = libusb_init(NULL);    /* LARS ERDMANN: force libusb to create a default context to circumvent arbitrary crashes in libuvc and also libusb */
+    ret = libusb_init(&ctx->usb_ctx);
     ctx->own_usb_ctx = 1;
-    ctx->usb_ctx = NULL;        /* LARS ERDMANN: don't worry about contexts, the libusb OS/2 backend could not care less ... */
     if (ret != UVC_SUCCESS) {
       free(ctx);
       ctx = NULL;
