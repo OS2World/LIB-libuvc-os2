@@ -1604,6 +1604,8 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
 
   pthread_mutex_lock(&strmh->cb_mutex);
 
+  strmh->running = 0;
+
   for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
     if(strmh->transfers[i] != NULL)
     {
@@ -1633,12 +1635,6 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
     pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
   } while(1);
 
-  /*
-   * LARS ERDMANN:
-   * only stop the stream once all the cancel requests have been processed
-   * by the stream callback so that the user thread will not stop prematurely
-   */
-  strmh->running = 0;
 
   // Kick the user thread awake
   pthread_cond_broadcast(&strmh->cb_cond);
