@@ -903,13 +903,12 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   {
     int libusbRet=-1;
 
+    pthread_mutex_lock(&strmh->cb_mutex);
     if ( strmh->running )
     {
       libusbRet = libusb_submit_transfer(transfer);
       if (libusbRet < 0)
       {
-        pthread_mutex_lock(&strmh->cb_mutex);
-
         /* Mark transfer as deleted. */
         for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
           if(strmh->transfers[i] == transfer) {
@@ -927,31 +926,21 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         }
 
         pthread_cond_broadcast(&strmh->cb_cond);
-        pthread_mutex_unlock(&strmh->cb_mutex);
       }
     } else {
-      pthread_mutex_lock(&strmh->cb_mutex);
-
-      /* Mark transfer as deleted. */
+      /* free ALL transfers/transfer buffers and mark ALL transfer as deleted as we are no longer streaming (strmh->running == 0) */
       for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
-        if(strmh->transfers[i] == transfer) {
-          UVC_DEBUG("Freeing orphan transfer %d (%p)", i, transfer);
-          free(transfer->buffer);
-          transfer->buffer = NULL;
-          libusb_free_transfer(transfer);
+        if(strmh->transfers[i]) {
+          free(strmh->transfer_bufs[i]);
+          libusb_free_transfer(strmh->transfers[i]);
           strmh->transfers[i] = NULL;
           strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
-          break;
         }
       }
-      if(i == LIBUVC_NUM_TRANSFER_BUFS ) {
-        UVC_DEBUG("orphan transfer %p not found; not freeing!", transfer);
-      }
-
 
       pthread_cond_broadcast(&strmh->cb_cond);
-      pthread_mutex_unlock(&strmh->cb_mutex);
     }
+    pthread_mutex_unlock(&strmh->cb_mutex);
   }
 }
 
@@ -1609,10 +1598,11 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
   for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
     if(strmh->transfers[i] != NULL)
     {
-      strmh->transfers[i]->status = LIBUSB_TRANSFER_CANCELLED;
+//      printf("Kill it !\n");
       int res = libusb_cancel_transfer(strmh->transfers[i]);
       if(res < 0 && res != LIBUSB_ERROR_NOT_FOUND )
       {
+//        printf("Shitsky !\n");
         UVC_DEBUG("Emergency freeing transfer %d (%p)", i, strmh->transfers[i]);
 
         free(strmh->transfers[i]->buffer);
@@ -1624,17 +1614,23 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
     }
   }
 
+//  printf("Waiting for finish ...\n");
+
   /* Wait for transfers to complete/cancel */
   do {
     for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
       if(strmh->transfers[i] != NULL)
+      {
+//        printf("ended one !\n");
         break;
+      }
     }
     if(i == LIBUVC_NUM_TRANSFER_BUFS )
       break;
     pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
   } while(1);
 
+//  printf("Finish done !\n");
 
   // Kick the user thread awake
   pthread_cond_broadcast(&strmh->cb_cond);
