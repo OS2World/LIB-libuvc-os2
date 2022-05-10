@@ -1757,16 +1757,13 @@ void uvc_close(uvc_device_handle_t *devh) {
   uvc_release_if(devh, devh->info->ctrl_if.bInterfaceNumber);
 
   /* If we are managing the libusb context and this is the last open device,
-   * then we need to cancel the handler thread. When we call libusb_close,
-   * it'll cause a return from the thread's libusb_handle_events call, after
-   * which the handler thread will check the flag we set and then exit. */
+   * then we need to cancel the handler thread. */
   if (ctx->own_usb_ctx && ctx->open_devices == devh && devh->next == NULL) {
+    libusb_interrupt_event_handler(ctx->usb_ctx);
     ctx->kill_handler_thread = 1;
-    libusb_close(devh->usb_devh);
     pthread_join(ctx->handler_thread, NULL);
-  } else {
-    libusb_close(devh->usb_devh);
   }
+  libusb_close(devh->usb_devh);
 
   DL_DELETE(ctx->open_devices, devh);
 

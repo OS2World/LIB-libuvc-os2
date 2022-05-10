@@ -903,12 +903,13 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   {
     int libusbRet=-1;
 
-    pthread_mutex_lock(&strmh->cb_mutex);
     if ( strmh->running )
     {
       libusbRet = libusb_submit_transfer(transfer);
       if (libusbRet < 0)
       {
+        pthread_mutex_lock(&strmh->cb_mutex);
+
         /* Mark transfer as deleted. */
         for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
           if(strmh->transfers[i] == transfer) {
@@ -926,8 +927,13 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         }
 
         pthread_cond_broadcast(&strmh->cb_cond);
+        pthread_mutex_unlock(&strmh->cb_mutex);
       }
-    } else {
+    }
+    else
+    {
+      pthread_mutex_lock(&strmh->cb_mutex);
+
       /* free ALL transfers/transfer buffers and mark ALL transfer as deleted as we are no longer streaming (strmh->running == 0) */
       for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
         if(strmh->transfers[i]) {
@@ -939,8 +945,8 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
       }
 
       pthread_cond_broadcast(&strmh->cb_cond);
+      pthread_mutex_unlock(&strmh->cb_mutex);
     }
-    pthread_mutex_unlock(&strmh->cb_mutex);
   }
 }
 
@@ -1383,7 +1389,7 @@ void *_uvc_user_caller(void *arg) {
 
     pthread_mutex_lock(&strmh->cb_mutex);
 
-    if (strmh->running && last_seq == strmh->hold_seq)
+    if (last_seq == strmh->hold_seq)
     {
       pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
     }
@@ -1643,6 +1649,8 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
      * LIBUSB_TRANSFER_CANCELLED transfer) */
     pthread_join(strmh->cb_thread, NULL);
   }
+
+//  printf("Finished user thread !\n");
 
   return UVC_SUCCESS;
 }
