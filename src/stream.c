@@ -886,7 +886,6 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
     if(i == LIBUVC_NUM_TRANSFER_BUFS ) {
       UVC_DEBUG("transfer %p not found; not freeing!", transfer);
     }
-
     pthread_cond_broadcast(&strmh->cb_cond);
     pthread_mutex_unlock(&strmh->cb_mutex);
     break;
@@ -903,13 +902,13 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
   {
     int libusbRet=-1;
 
+    pthread_mutex_lock(&strmh->cb_mutex);
+
     if ( strmh->running )
     {
       libusbRet = libusb_submit_transfer(transfer);
       if (libusbRet < 0)
       {
-        pthread_mutex_lock(&strmh->cb_mutex);
-
         /* Mark transfer as deleted. */
         for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
           if(strmh->transfers[i] == transfer) {
@@ -925,15 +924,12 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         if (i == LIBUVC_NUM_TRANSFER_BUFS) {
           UVC_DEBUG("failed transfer %p not found; not freeing!", transfer);
         }
-
         pthread_cond_broadcast(&strmh->cb_cond);
-        pthread_mutex_unlock(&strmh->cb_mutex);
       }
     }
     else
     {
-      pthread_mutex_lock(&strmh->cb_mutex);
-
+#ifdef __OS2__
       /* free ALL transfers/transfer buffers and mark ALL transfer as deleted as we are no longer streaming (strmh->running == 0) */
       for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
         if(strmh->transfers[i]) {
@@ -943,12 +939,23 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
           strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
         }
       }
-
+#else
+      for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
+        if(strmh->transfers[i] == transfer) {
+          free(strmh->transfer_bufs[i]);
+          libusb_free_transfer(strmh->transfers[i]);
+          strmh->transfers[i] = NULL;
+          strmh->transfer_bufs[i] = NULL; /* buffer has also been freed, so also show this here ??? */
+        }
+      }
+#endif
       pthread_cond_broadcast(&strmh->cb_cond);
-      pthread_mutex_unlock(&strmh->cb_mutex);
     }
+
+    pthread_mutex_unlock(&strmh->cb_mutex);
   }
 }
+
 
 /** Begin streaming video from the camera into the callback function.
  * @ingroup streaming
@@ -1622,12 +1629,14 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
 
 //  printf("Waiting for finish ...\n");
 
+#ifdef __OS2__
+  pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
+#else
   /* Wait for transfers to complete/cancel */
   do {
     for(i=0; i < LIBUVC_NUM_TRANSFER_BUFS; i++) {
       if(strmh->transfers[i] != NULL)
       {
-//        printf("ended one !\n");
         break;
       }
     }
@@ -1635,12 +1644,14 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
       break;
     pthread_cond_wait(&strmh->cb_cond, &strmh->cb_mutex);
   } while(1);
+#endif
 
-//  printf("Finish done !\n");
 
   // Kick the user thread awake
   pthread_cond_broadcast(&strmh->cb_cond);
   pthread_mutex_unlock(&strmh->cb_mutex);
+
+//  printf("Finish done !\n");
 
   /** @todo stop the actual stream, camera side? */
 
