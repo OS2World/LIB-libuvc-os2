@@ -155,8 +155,8 @@ static uvc_error_t uvc_mjpeg_convert(uvc_frame_t *in, uvc_frame_t *out) {
 
   buffer = out->data;
   while (dinfo.output_scanline < dinfo.output_height) {
-    jpeg_read_scanlines(&dinfo, &buffer, 1);
-    buffer += out->step;
+    jpeg_read_scanlines(&dinfo, &buffer, dinfo.output_height);
+    buffer = out->data + dinfo.output_scanline * dinfo.output_width * dinfo.output_components;
   }
 
   jpeg_finish_decompress(&dinfo);
